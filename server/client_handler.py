@@ -2,8 +2,8 @@ import socket
 import threading
 from typing import Optional
 
-from chat_e2ee.shared.serialization import recv_json, send_json
-from chat_e2ee.shared import message_types
+from shared.serialization import recv_json, send_json
+from shared import message_types
 from .registry import UserRegistry
 
 

@@ -1,8 +1,8 @@
 import socket
 from typing import Dict, Any
 
-from chat_e2ee.shared.serialization import send_json
-from chat_e2ee.shared import message_types
+from shared.serialization import send_json
+from shared import message_types
 
 
 def send_register(sock: socket.socket, username: str, public_key_pem: str | None = None) -> None:

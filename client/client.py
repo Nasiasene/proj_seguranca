@@ -1,10 +1,10 @@
 import socket
 from typing import Any, Dict
 
-from chat_e2ee.client.receiver import Receiver
-from chat_e2ee.client.sender import send_chat, send_register
-from chat_e2ee.client.key_manager import KeyManager
-from chat_e2ee.shared import message_types
+from client.receiver import Receiver
+from client.sender import send_chat, send_register
+from client.key_manager import KeyManager
+from shared import message_types
 
 
 class ChatClient:

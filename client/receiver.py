@@ -3,7 +3,7 @@ from typing import Callable
 
 import socket
 
-from chat_e2ee.shared.serialization import recv_json
+from shared.serialization import recv_json
 
 
 class Receiver(threading.Thread):

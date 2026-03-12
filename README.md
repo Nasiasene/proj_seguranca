@@ -22,3 +22,8 @@ plaintext and visible to the server. Later phases will add RSA key
 management and AES-GCM encryption while keeping the same protocol
 structure.
 
+source venv/bin/activate
+
+python -m server.server          
+python -m client.client alice
+python -m client.client bob
