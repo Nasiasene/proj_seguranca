@@ -136,11 +136,13 @@ class ClientHandler(threading.Thread):
             return
 
         # Normalize the outgoing message: enforce the correct "from" field.
+        message_content = msg.get("message", "")
         outgoing = {
             "type": message_types.TYPE_CHAT,
             "from": self.username,
             "to": target_username,
-            "message": msg.get("message", ""),
+            "message": message_content,
         }
         send_json(target_sock, outgoing)
+        print(f"[server] Routed message from {self.username} to {target_username}: {message_content!r}")
 
