@@ -62,9 +62,58 @@ python -m client.client bob --host <SERVER_PUBLIC_IP> --port 5000
 Replace `<SERVER_PUBLIC_IP>` with the IP address of the friend hosting the
 server.
 
+#### Optional: quick connectivity test
+
+Before opening the chat client, each friend can test if the server is reachable:
+
+```bash
+source venv/bin/activate
+python scripts/check_connectivity.py <SERVER_PUBLIC_IP> --port 5000
+```
+
+If it prints `[ok]`, network path is open.
+If it prints `[error]`, check firewall and router forwarding settings below.
+
 #### Notes
 
 - If everyone is on the same Wi-Fi/LAN, use the host machine's local IP
   address instead of the public IP.
 - If port forwarding is not possible, use a cloud VM/VPS or a tunnel service.
 - The server must remain running the whole time for the chat to work.
+
+### Allow TCP connections on port 5000
+
+For internet access, you usually need to configure **both** firewall and router.
+
+- **Firewall**: allow inbound TCP on port `5000` on the server machine.
+- **Router/NAT**: forward external TCP `5000` to the server machine's local IP.
+
+#### macOS (Application Firewall)
+
+1. Open **System Settings → Network → Firewall**.
+2. Go to **Options...** and add the terminal/Python app you use.
+3. Set it to **Allow incoming connections**.
+
+If needed, temporarily test with firewall disabled to confirm if it is the blocker,
+then re-enable it after creating an allow rule.
+
+#### Linux (UFW)
+
+```bash
+sudo ufw allow 5000/tcp
+sudo ufw status
+```
+
+#### Windows (PowerShell as Administrator)
+
+```powershell
+New-NetFirewallRule -DisplayName "chat_e2ee_5000" -Direction Inbound -Protocol TCP -LocalPort 5000 -Action Allow
+Get-NetFirewallRule -DisplayName "chat_e2ee_5000"
+```
+
+#### Router port forwarding
+
+- Forward **External Port** `5000` (TCP) to **Internal IP** of the server machine,
+  **Internal Port** `5000`.
+- Reserve or set a static local IP for the server machine so forwarding does not break.
+- If your ISP uses CGNAT, direct port forwarding may not work; use a VPS or tunnel.
