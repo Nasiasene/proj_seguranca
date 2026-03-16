@@ -14,7 +14,7 @@ class ChatServer:
     end-to-end encrypted payloads.
     """
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 5000) -> None:
+    def __init__(self, host: str = "0.0.0.0", port: int = 5000) -> None:
         self.host = host
         self.port = port
         self.registry = UserRegistry()
@@ -44,7 +44,23 @@ class ChatServer:
 
 
 def main() -> None:
-    server = ChatServer()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Simple multi-client chat server.")
+    parser.add_argument(
+        "--host",
+        default="0.0.0.0",
+        help="Address to bind the server to (default: 0.0.0.0).",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=5000,
+        help="TCP port to listen on (default: 5000).",
+    )
+    args = parser.parse_args()
+
+    server = ChatServer(host=args.host, port=args.port)
     server.start()
 
 
