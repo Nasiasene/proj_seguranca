@@ -5,6 +5,27 @@ from typing import Any, Dict, Optional
 
 from cryptography.hazmat.primitives.asymmetric import rsa
 
+# ---------------------------------------------------------------------------
+# ANSI color helpers — no external dependencies needed
+# ---------------------------------------------------------------------------
+_R  = "\033[0m"          # reset
+_B  = "\033[1m"          # bold
+_DIM = "\033[2m"         # dim
+_RED  = "\033[31m"
+_GREEN = "\033[32m"
+_YELLOW = "\033[33m"
+_CYAN = "\033[36m"
+_BLUE = "\033[34m"
+_WHITE = "\033[97m"
+
+
+def _fmt_info(text: str)    -> str: return f"{_BLUE}[i]{_R} {_DIM}{text}{_R}"
+def _fmt_error(text: str)   -> str: return f"{_RED}[!]{_R} {_RED}{text}{_R}"
+def _fmt_chat(sender: str, text: str) -> str:
+    return f"{_GREEN}{_B}{sender}{_R}{_GREEN}:{_R} {text}"
+def _fmt_key(text: str)     -> str: return f"{_YELLOW}[key]{_R} {_YELLOW}{text}{_R}"
+def _fmt_session(text: str) -> str: return f"{_CYAN}[session]{_R} {_CYAN}{text}{_R}"
+
 from client.receiver import Receiver
 from client.sender import send_encrypted_chat, send_get_public_key, send_register, send_session_key
 from client.key_manager import KeyManager
@@ -39,6 +60,14 @@ class ChatClient:
         key <username>       — manually inspect a peer's public key
         quit / exit          — disconnect
     """
+
+    def _prompt(self) -> str:
+        """The input prompt string, e.g.  alice ▶  """
+        return f"{_GREEN}{_B}{self.username}{_R} {_WHITE}▶{_R}  "
+
+    def _reprint_prompt(self) -> None:
+        """Reprint the input prompt after an async message interrupts the line."""
+        print(self._prompt(), end="", flush=True)
 
     def __init__(self, username: str, host: str = "127.0.0.1", port: int = 5000) -> None:
         self.username = username
@@ -81,13 +110,14 @@ class ChatClient:
         msg_type = msg.get("type")
 
         if msg_type == message_types.TYPE_INFO:
-            print(f"[info] {msg.get('message')}")
+            print(f"\n{_fmt_info(msg.get('message', ''))}")
             users = msg.get("users")
             if isinstance(users, list):
-                print(f"[info] Online users: {', '.join(users)}")
+                print(_fmt_info(f"Online users: {_B}{', '.join(users)}{_R}"))
 
         elif msg_type == message_types.TYPE_ERROR:
-            print(f"[error] {msg.get('error')}")
+            print(f"\n{_fmt_error(msg.get('error', ''))}")
+            self._reprint_prompt()
 
         elif msg_type == message_types.TYPE_CHAT:
             self._handle_incoming_chat(msg)
@@ -99,7 +129,8 @@ class ChatClient:
             self._handle_incoming_session_key(msg)
 
         else:
-            print(f"[server] {msg}")
+            print(f"\n{_fmt_info(str(msg))}")
+            self._reprint_prompt()
 
     def _handle_public_key_response(self, msg: Dict[str, Any]) -> None:
         """
@@ -117,8 +148,10 @@ class ChatClient:
         if event:
             event.set()
         else:
-            # Manual `key` command — just display the key.
-            print(f"\n[key] Public key for '{target}' received and cached.\n> ", end="", flush=True)
+            # Manual `key` command — display the key.
+            print(f"\n{_fmt_key(f'Public key for {repr(target)} received and cached.')}")
+            print(f"{_DIM}{pem}{_R}")
+            self._reprint_prompt()
 
     def _handle_incoming_session_key(self, msg: Dict[str, Any]) -> None:
         """
@@ -137,12 +170,10 @@ class ChatClient:
         self.session_keys[from_user] = session_key
 
         print(
-            f"\n[session] Session key from '{from_user}' decrypted with your private key "
-            f"({len(session_key) * 8}-bit AES key established).\n"
-            f"[session]   Plaintext AES key (hex): {session_key.hex()}\n> ",
-            end="",
-            flush=True,
+            f"\n{_fmt_session(f'Session key from {repr(from_user)} decrypted with your private key ({len(session_key)*8}-bit AES).')}"
+            f"\n{_fmt_session(f'  Plaintext AES key (hex): {_B}{session_key.hex()}{_R}{_CYAN}')}"
         )
+        self._reprint_prompt()
 
     def _handle_incoming_chat(self, msg: Dict[str, Any]) -> None:
         """
@@ -161,12 +192,8 @@ class ChatClient:
         session_key = self.session_keys.get(from_user)
 
         if session_key is None:
-            print(
-                f"\n[error] Message from '{from_user}' could not be decrypted "
-                "(no session key established yet).\n> ",
-                end="",
-                flush=True,
-            )
+            print(f"\n{_fmt_error(f'Message from {repr(from_user)} cannot be decrypted (no session key).')}")
+            self._reprint_prompt()
             return
 
         nonce = base64.b64decode(msg["nonce"])
@@ -174,7 +201,8 @@ class ChatClient:
         tag = base64.b64decode(msg["tag"])
 
         plaintext = decrypt_aes_gcm(session_key, nonce, ciphertext, tag)
-        print(f"\n[chat] {from_user}: {plaintext.decode('utf-8')}\n> ", end="", flush=True)
+        print(f"\n{_fmt_chat(from_user, plaintext.decode('utf-8'))}")
+        self._reprint_prompt()
 
     def _ensure_session_key(self, target: str) -> bool:
         """
@@ -202,7 +230,7 @@ class ChatClient:
             # Block until _handle_public_key_response signals us or we time out.
             if not event.wait(timeout=_KEY_FETCH_TIMEOUT):
                 self._pending_key_events.pop(target, None)
-                print(f"[error] Timed out waiting for public key of '{target}'.")
+                print(_fmt_error(f"Timed out waiting for public key of '{target}'."))
                 return False
 
         # Generate a random 256-bit AES session key.
@@ -218,8 +246,8 @@ class ChatClient:
         self.session_keys[target] = aes_key
 
         print(
-            f"[session] AES session key generated and sent to '{target}' (encrypted with their RSA public key).\n"
-            f"[session]   Plaintext AES key (hex): {aes_key.hex()}"
+            f"{_fmt_session(f'Session key generated and sent to {repr(target)} (RSA-OAEP encrypted).')}"
+            f"\n{_fmt_session(f'  Plaintext AES key (hex): {_B}{aes_key.hex()}{_R}{_CYAN}')}"
         )
         return True
 
@@ -235,16 +263,18 @@ class ChatClient:
         if self.sock is None:
             raise RuntimeError("Client is not connected.")
 
-        print(
-            f"Connected as '{self.username}'.\n"
-            "  <recipient>: <text>  — send a message\n"
-            "  key <username>       — fetch a user's public key\n"
-            "  quit                 — exit"
-        )
+        w = 52
+        print(f"\n{_CYAN}{'─' * w}{_R}")
+        print(f"{_CYAN}  Secure E2EE Chat{_R}")
+        print(f"{_CYAN}  Connected as: {_B}{_WHITE}{self.username}{_R}")
+        print(f"{_DIM}  {_B}<recipient>: <text>{_R}{_DIM}  — send a message{_R}")
+        print(f"{_DIM}  {_B}key <username>{_R}{_DIM}        — fetch a public key{_R}")
+        print(f"{_DIM}  {_B}quit{_R}{_DIM}                  — exit{_R}")
+        print(f"{_CYAN}{'─' * w}{_R}\n")
 
         try:
             while True:
-                line = input("> ").strip()
+                line = input(self._prompt()).strip()
                 if not line:
                     continue
 
@@ -255,21 +285,21 @@ class ChatClient:
                 if line.lower().startswith("key "):
                     target = line[4:].strip()
                     if not target:
-                        print("Usage: key <username>")
+                        print(_fmt_error("Usage: key <username>"))
                         continue
                     send_get_public_key(self.sock, target)
                     continue
 
                 # Command: <recipient>: <message>
                 if ":" not in line:
-                    print("Format: <recipient>: <message>  or  key <username>")
+                    print(_fmt_error("Format: <recipient>: <message>  or  key <username>"))
                     continue
 
                 target, text = line.split(":", 1)
                 target = target.strip()
                 text = text.strip()
                 if not target or not text:
-                    print("Format: <recipient>: <message>")
+                    print(_fmt_error("Format: <recipient>: <message>"))
                     continue
 
                 # Phase 4: ensure a session key is established before sending.

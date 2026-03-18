@@ -1,10 +1,36 @@
 import socket
 import threading
+from datetime import datetime
 from typing import Optional
 
 from shared.serialization import recv_json, send_json
 from shared import message_types
 from .registry import UserRegistry
+
+# ---------------------------------------------------------------------------
+# Server-side ANSI log helpers
+# ---------------------------------------------------------------------------
+_R   = "\033[0m"
+_B   = "\033[1m"
+_DIM = "\033[2m"
+_RED     = "\033[31m"
+_GREEN   = "\033[32m"
+_YELLOW  = "\033[33m"
+_BLUE    = "\033[34m"
+_MAGENTA = "\033[35m"
+_CYAN    = "\033[36m"
+_WHITE   = "\033[97m"
+
+
+def _ts() -> str:
+    return f"{_DIM}{datetime.now().strftime('%H:%M:%S')}{_R}"
+
+def _log(label: str, color: str, text: str) -> None:
+    print(f"{_ts()} {color}{_B}{label}{_R} {text}")
+
+def _trim(b64: str, n: int = 20) -> str:
+    """Show only the first n chars of a base64 payload to keep logs readable."""
+    return b64[:n] + "…" if len(b64) > n else b64
 
 
 class ClientHandler(threading.Thread):
@@ -72,9 +98,10 @@ class ClientHandler(threading.Thread):
         self.username = desired_username
 
         if public_key_pem is not None:
-            print(f"[server] '{self.username}' registered with a public key {public_key_pem}.")
+            _log("[REGISTER]", _GREEN, f"{_B}{self.username}{_R} joined — RSA public key stored automatically.")
+            print(f"{_DIM}{public_key_pem}{_R}")
         else:
-            print(f"[server] '{self.username}' registered without a public key.")
+            _log("[REGISTER]", _YELLOW, f"{_B}{self.username}{_R} joined — no public key provided.")
 
         send_json(
             self.sock,
@@ -88,7 +115,7 @@ class ClientHandler(threading.Thread):
         while True:
             msg = recv_json(self.sock)
             if msg is None:
-                # Client disconnected.
+                _log("[DISCONNECT]", _RED, f"{_B}{self.username}{_R} disconnected.")
                 break
 
             msg_type = msg.get("type")
@@ -151,11 +178,10 @@ class ClientHandler(threading.Thread):
         }
         encrypted_b64 = msg.get("encrypted_session_key", "")
         send_json(target_sock, outgoing)
-        print(
-            f"[server] [SESSION KEY] Encrypted session key routed from '{self.username}' "
-            f"to '{target_username}' — server cannot decrypt it.\n"
-            f"[server]   Encrypted payload (base64): {encrypted_b64}"
-        )
+        _log("[SESSION KEY]", _CYAN,
+             f"{_B}{self.username}{_R} → {_B}{target_username}{_R} "
+             f"{_DIM}(server cannot decrypt){_R}")
+        print(f"{_DIM}{encrypted_b64}{_R}")
 
     def _handle_get_public_key(self, msg: dict) -> None:
         """
@@ -195,10 +221,9 @@ class ClientHandler(threading.Thread):
                 "public_key": public_key_pem,
             },
         )
-        print(
-            f"[server] [STEP 1/2 - KEY EXCHANGE] '{self.username}' requested public key of '{target}'. "
-            "Key sent — client can now encrypt the session key."
-        )
+        _log("[KEY EXCHANGE]", _YELLOW,
+             f"{_B}{self.username}{_R} requested RSA public key of {_B}{target}{_R} "
+             f"— key sent, client can now encrypt the session key.")
 
     def _handle_chat(self, msg: dict) -> None:
         """
@@ -245,9 +270,12 @@ class ClientHandler(threading.Thread):
             "tag": msg.get("tag", ""),
         }
         send_json(target_sock, outgoing)
+        _log("[MSG]", _MAGENTA,
+             f"{_B}{self.username}{_R} → {_B}{target_username}{_R} "
+             f"{_DIM}(server cannot decrypt){_R}")
         print(
-            f"[server] [STEP 2/2 - MESSAGE ROUTING] '{self.username}' → '{target_username}' "
-            f"| nonce={msg.get('nonce','')} ciphertext={msg.get('ciphertext','')} tag={msg.get('tag','')}"
-            "(server cannot decrypt)"
+            f"{_DIM}  nonce:      {msg.get('nonce', '')}\n"
+            f"  ciphertext: {msg.get('ciphertext', '')}\n"
+            f"  tag:        {msg.get('tag', '')}{_R}"
         )
 

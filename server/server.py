@@ -1,7 +1,8 @@
 import socket
 import threading
+from datetime import datetime
 
-from .client_handler import ClientHandler
+from .client_handler import ClientHandler, _log, _ts, _GREEN, _RED, _CYAN, _B, _R, _DIM
 from .registry import UserRegistry
 
 
@@ -28,16 +29,23 @@ class ChatServer:
         self._server_socket.bind((self.host, self.port))
         self._server_socket.listen()
 
-        print(f"[server] Listening on {self.host}:{self.port}")
+        w = 52
+        print(f"\n{_CYAN}{'─' * w}{_R}")
+        print(f"{_CYAN}  Secure E2EE Chat — Server{_R}")
+        print(f"{_CYAN}  Listening on {_B}{self.host}:{self.port}{_R}")
+        print(f"{_DIM}  Routes encrypted messages — cannot read content{_R}")
+        print(f"{_CYAN}{'─' * w}{_R}\n")
 
         try:
             while True:
                 client_sock, address = self._server_socket.accept()
-                print(f"[server] New connection from {address}")
+                _log("[CONNECT]", _GREEN, f"New TCP connection from {_B}{address[0]}:{address[1]}{_R}")
                 handler = ClientHandler(client_sock, address, self.registry)
                 handler.start()
         except KeyboardInterrupt:
-            print("\n[server] Shutting down...")
+            print(f"\n{_RED}{'─' * w}{_R}")
+            print(f"{_RED}  Server shutting down.{_R}")
+            print(f"{_RED}{'─' * w}{_R}")
         finally:
             if self._server_socket:
                 self._server_socket.close()
