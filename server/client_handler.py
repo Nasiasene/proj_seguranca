@@ -71,6 +71,11 @@ class ClientHandler(threading.Thread):
 
         self.username = desired_username
 
+        if public_key_pem is not None:
+            print(f"[server] '{self.username}' registered with a public key {public_key_pem}.")
+        else:
+            print(f"[server] '{self.username}' registered without a public key.")
+
         send_json(
             self.sock,
             {
@@ -89,6 +94,10 @@ class ClientHandler(threading.Thread):
             msg_type = msg.get("type")
             if msg_type == message_types.TYPE_CHAT:
                 self._handle_chat(msg)
+            elif msg_type == message_types.TYPE_GET_PUBLIC_KEY:
+                self._handle_get_public_key(msg)
+            elif msg_type == message_types.TYPE_SESSION_KEY:
+                self._handle_session_key(msg)
             else:
                 send_json(
                     self.sock,
@@ -98,17 +107,107 @@ class ClientHandler(threading.Thread):
                     },
                 )
 
-    def _handle_chat(self, msg: dict) -> None:
+    def _handle_session_key(self, msg: dict) -> None:
         """
-        Forward a chat message from this client to another registered user.
+        Route an encrypted session key from one client to another.
+
+        The message carries an AES key that has been encrypted with the
+        recipient's RSA public key.  The server forwards it blindly —
+        it cannot decrypt the AES key because it never has the private key.
 
         Expected message format:
         {
-            "type": "chat",
-            "from": "<sender_username>",
-            "to": "<recipient_username>",
-            "message": "<plaintext_message>"
+            "type": "session_key",
+            "from": "<sender>",
+            "to": "<recipient>",
+            "encrypted_session_key": "<base64>"
         }
+        """
+        target_username = msg.get("to")
+        if not isinstance(target_username, str) or not target_username:
+            send_json(
+                self.sock,
+                {"type": message_types.TYPE_ERROR, "error": "session_key missing 'to' field."},
+            )
+            return
+
+        target_sock = self.registry.get_socket(target_username)
+        if target_sock is None:
+            send_json(
+                self.sock,
+                {
+                    "type": message_types.TYPE_ERROR,
+                    "error": f"User '{target_username}' is not online.",
+                },
+            )
+            return
+
+        # Forward the message as-is. The encrypted payload is opaque to the server.
+        outgoing = {
+            "type": message_types.TYPE_SESSION_KEY,
+            "from": self.username,
+            "to": target_username,
+            "encrypted_session_key": msg.get("encrypted_session_key", ""),
+        }
+        encrypted_b64 = msg.get("encrypted_session_key", "")
+        send_json(target_sock, outgoing)
+        print(
+            f"[server] [SESSION KEY] Encrypted session key routed from '{self.username}' "
+            f"to '{target_username}' — server cannot decrypt it.\n"
+            f"[server]   Encrypted payload (base64): {encrypted_b64}"
+        )
+
+    def _handle_get_public_key(self, msg: dict) -> None:
+        """
+        Respond to a public-key lookup request.
+
+        The client sends:
+            { "type": "get_public_key", "target": "<username>" }
+
+        The server replies with the stored PEM public key, or an error if the
+        user is unknown.  The server never learns anything new here — it only
+        returns a value it was already trusted to store during registration.
+        """
+        target = msg.get("target")
+        if not isinstance(target, str) or not target:
+            send_json(
+                self.sock,
+                {"type": message_types.TYPE_ERROR, "error": "Missing 'target' field."},
+            )
+            return
+
+        public_key_pem = self.registry.get_public_key(target)
+        if public_key_pem is None:
+            send_json(
+                self.sock,
+                {
+                    "type": message_types.TYPE_ERROR,
+                    "error": f"No public key registered for '{target}'.",
+                },
+            )
+            return
+
+        send_json(
+            self.sock,
+            {
+                "type": message_types.TYPE_PUBLIC_KEY_RESPONSE,
+                "target": target,
+                "public_key": public_key_pem,
+            },
+        )
+        print(
+            f"[server] [STEP 1/2 - KEY EXCHANGE] '{self.username}' requested public key of '{target}'. "
+            "Key sent — client can now encrypt the session key."
+        )
+
+    def _handle_chat(self, msg: dict) -> None:
+        """
+        Forward an AES-GCM encrypted chat message to the intended recipient.
+
+        Phase 5: the message payload consists of three opaque base64 fields —
+        nonce, ciphertext, and tag — produced by the sender's AES-GCM operation.
+        The server forwards them verbatim without being able to read or modify
+        the plaintext (it never holds the session key).
         """
         if self.username is None:
             return
@@ -135,14 +234,20 @@ class ClientHandler(threading.Thread):
             )
             return
 
-        # Normalize the outgoing message: enforce the correct "from" field.
-        message_content = msg.get("message", "")
+        # Forward the encrypted fields as-is.
+        # Enforcing "from" = self.username prevents sender spoofing.
         outgoing = {
             "type": message_types.TYPE_CHAT,
             "from": self.username,
             "to": target_username,
-            "message": message_content,
+            "nonce": msg.get("nonce", ""),
+            "ciphertext": msg.get("ciphertext", ""),
+            "tag": msg.get("tag", ""),
         }
         send_json(target_sock, outgoing)
-        print(f"[server] Routed message from {self.username} to {target_username}: {message_content!r}")
+        print(
+            f"[server] [STEP 2/2 - MESSAGE ROUTING] '{self.username}' → '{target_username}' "
+            f"| nonce={msg.get('nonce','')} ciphertext={msg.get('ciphertext','')} tag={msg.get('tag','')}"
+            "(server cannot decrypt)"
+        )
 
